@@ -1,4 +1,5 @@
 import browser from "webextension-polyfill";
+import { scrapeQuestion } from "./questionScraper.js";
 
 console.log("Hello from the background!");
 
@@ -8,32 +9,25 @@ browser.runtime.onInstalled.addListener((details) => {
 
 let isAutoClicking = false;
 
-// Function to click the "Next" button using multiple selection methods
+// Function to get question information
+function getQuestionInfo() {
+	const questionList = document.querySelector(".questionList");
+	const questions = questionList.querySelectorAll("li");
+	const activeQuestion = questionList.querySelector(".current-question");
+
+	return {
+		total: questions.length,
+		active: activeQuestion
+			? Array.from(questions).indexOf(activeQuestion) + 1
+			: null,
+	};
+}
+
+// Function to click the "Next" button
 function clickNextButton() {
-	// Method 1: querySelector
-	let nextButton = document.querySelector(
+	const nextButton = document.querySelector(
 		'button.btn.btn-info-test.pull-right.mar-t0.ng-binding[ng-click="navBtnPressed(true)"]'
 	);
-
-	// Method 2: XPath
-	if (!nextButton) {
-		const xpath =
-			'//button[@class="btn btn-info-test pull-right mar-t0 ng-binding" and @ng-click="navBtnPressed(true)"]';
-		nextButton = document.evaluate(
-			xpath,
-			document,
-			null,
-			XPathResult.FIRST_ORDERED_NODE_TYPE,
-			null
-		).singleNodeValue;
-	}
-
-	// Method 3: JavaScript path
-	if (!nextButton) {
-		nextButton = document.querySelector(
-			"#questions > div.footer.mob-button-footer > div.footer-inner > button.btn.btn-info-test.pull-right.mar-t0.ng-binding"
-		);
-	}
 
 	if (nextButton) {
 		nextButton.click();
@@ -45,56 +39,109 @@ function clickNextButton() {
 	}
 }
 
-async function autoClickNext(tabId, maxClicks) {
-	isAutoClicking = true;
-	let clickCount = 0;
+// Function to click the "View Solution" button
+function clickViewSolutionButton() {
+	const viewSolutionButton = document.querySelector(
+		'button.btn.btn-sm.btn-outline-theme.mar-r4[ng-click="toggleViewSolution()"]'
+	);
 
-	while (isAutoClicking && clickCount < maxClicks) {
-		const result = await browser.scripting.executeScript({
+	if (viewSolutionButton) {
+		viewSolutionButton.click();
+		console.log("View Solution button clicked");
+		return true;
+	} else {
+		console.log("View Solution button not found");
+		return false;
+	}
+}
+
+async function traverseSection(tabId) {
+	isAutoClicking = true;
+
+	while (isAutoClicking) {
+		// Get current question info
+		const questionInfo = await browser.scripting.executeScript({
+			target: { tabId: tabId },
+			func: getQuestionInfo,
+		});
+
+		// Send question info to popup
+		browser.runtime.sendMessage({
+			action: "updateQuestionInfo",
+			info: questionInfo[0].result,
+		});
+
+		// Scrape the question
+		const scrapedQuestion = await browser.scripting.executeScript({
+			target: { tabId: tabId },
+			func: scrapeQuestion,
+		});
+
+		if (scrapedQuestion[0].result) {
+			console.log("Scraped question:", scrapedQuestion[0].result);
+			// Here you can send the scraped question to the popup or save it
+		}
+
+		// Click View Solution button if available
+		await browser.scripting.executeScript({
+			target: { tabId: tabId },
+			func: clickViewSolutionButton,
+		});
+
+		// Wait for 2 seconds to allow solution to load
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+
+		// Click next button
+		const clickResult = await browser.scripting.executeScript({
 			target: { tabId: tabId },
 			func: clickNextButton,
 		});
 
-		if (!result[0].result) {
-			console.log("Failed to click Next button. Stopping auto-click.");
+		if (!clickResult[0].result) {
+			console.log(
+				"Reached the end of the section or encountered an error. Stopping traversal."
+			);
 			break;
 		}
 
-		clickCount++;
-		console.log(`Clicked ${clickCount} times`);
-
-		await new Promise((resolve) => setTimeout(resolve, 3000)); // 3 second delay
+		// Wait for 100ms before next iteration
+		await new Promise((resolve) => setTimeout(resolve, 100));
 	}
 
 	isAutoClicking = false;
-	return clickCount;
 }
 
 // Listen for messages from the popup
 browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-	if (message.action === "clickNext") {
-		try {
-			const [tab] = await browser.tabs.query({
-				active: true,
-				currentWindow: true,
-			});
-			const result = await browser.scripting.executeScript({
-				target: { tabId: tab.id },
-				func: clickNextButton,
-			});
-			return result[0].result;
-		} catch (error) {
-			console.error("Error executing script:", error);
-			return false;
-		}
-	} else if (message.action === "autoClickNext") {
+	if (message.action === "getQuestionInfo") {
 		const [tab] = await browser.tabs.query({
 			active: true,
 			currentWindow: true,
 		});
-		return autoClickNext(tab.id, 100);
-	} else if (message.action === "stopAutoClick") {
+		const result = await browser.scripting.executeScript({
+			target: { tabId: tab.id },
+			func: getQuestionInfo,
+		});
+		return result[0].result;
+	} else if (message.action === "traverseSection") {
+		const [tab] = await browser.tabs.query({
+			active: true,
+			currentWindow: true,
+		});
+		traverseSection(tab.id);
+		return true;
+	} else if (message.action === "stopTraversal") {
 		isAutoClicking = false;
 		return true;
+	} else if (message.action === "viewSolution") {
+		const [tab] = await browser.tabs.query({
+			active: true,
+			currentWindow: true,
+		});
+		const result = await browser.scripting.executeScript({
+			target: { tabId: tab.id },
+			func: clickViewSolutionButton,
+		});
+		return result[0].result;
 	}
 });

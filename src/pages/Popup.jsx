@@ -4,47 +4,70 @@ import "./Popup.css";
 
 export default function Popup() {
 	const [status, setStatus] = useState("");
-	const [isAutoClicking, setIsAutoClicking] = useState(false);
+	const [isTraversing, setIsTraversing] = useState(false);
+	const [questionInfo, setQuestionInfo] = useState({
+		total: 0,
+		active: null,
+	});
 
 	useEffect(() => {
 		console.log("Hello from the popup!");
+		updateQuestionInfo();
+
+		// Listen for question info updates from the background script
+		browser.runtime.onMessage.addListener((message) => {
+			if (message.action === "updateQuestionInfo") {
+				setQuestionInfo(message.info);
+			}
+		});
 	}, []);
 
-	const handleClickNext = async () => {
-		setStatus("Attempting to click Next...");
+	const updateQuestionInfo = async () => {
 		try {
-			const result = await browser.runtime.sendMessage({
-				action: "clickNext",
+			const info = await browser.runtime.sendMessage({
+				action: "getQuestionInfo",
 			});
-			if (result) {
-				setStatus("Next button clicked successfully.");
-			} else {
-				setStatus("Next button not found or could not be clicked.");
-			}
+			setQuestionInfo(info);
 		} catch (error) {
-			setStatus(`Error: ${error.message}`);
+			console.error("Error getting question info:", error);
 		}
 	};
 
-	const handleAutoClickNext = async () => {
-		if (isAutoClicking) {
-			setStatus("Stopping auto-click...");
-			await browser.runtime.sendMessage({ action: "stopAutoClick" });
-			setIsAutoClicking(false);
-			setStatus("Auto-click stopped.");
+	const handleTraverseSection = async () => {
+		if (isTraversing) {
+			setStatus("Stopping traversal...");
+			await browser.runtime.sendMessage({ action: "stopTraversal" });
+			setIsTraversing(false);
+			setStatus("Traversal stopped.");
 		} else {
-			setStatus("Starting auto-click (max 100 times with 3s delay)...");
-			setIsAutoClicking(true);
+			setStatus("Starting section traversal...");
+			setIsTraversing(true);
 			try {
-				const clickCount = await browser.runtime.sendMessage({
-					action: "autoClickNext",
+				await browser.runtime.sendMessage({
+					action: "traverseSection",
 				});
-				setIsAutoClicking(false);
-				setStatus(`Auto-click completed. Clicked ${clickCount} times.`);
 			} catch (error) {
-				setIsAutoClicking(false);
-				setStatus(`Error during auto-click: ${error.message}`);
+				console.error("Error during traversal:", error);
+				setStatus(`Error during traversal: ${error.message}`);
+				setIsTraversing(false);
 			}
+		}
+	};
+
+	const handleViewSolution = async () => {
+		setStatus("Attempting to view solution...");
+		try {
+			const result = await browser.runtime.sendMessage({
+				action: "viewSolution",
+			});
+			if (result) {
+				setStatus("Solution viewed successfully.");
+			} else {
+				setStatus("View Solution button not found.");
+			}
+		} catch (error) {
+			console.error("Error viewing solution:", error);
+			setStatus(`Error viewing solution: ${error.message}`);
 		}
 	};
 
@@ -52,14 +75,15 @@ export default function Popup() {
 		<div>
 			<img src="/icon-with-shadow.svg" alt="Extension icon" />
 			<h1>Testbook Automation</h1>
+			<p>Current section: {questionInfo.total} questions</p>
 			<p>
-				Click the buttons below to automate the "Next" button on
-				Testbook.com
+				Active question:{" "}
+				{questionInfo.active !== null ? questionInfo.active : "N/A"}
 			</p>
-			<button onClick={handleClickNext}>Click Next Once</button>
-			<button onClick={handleAutoClickNext}>
-				{isAutoClicking ? "Stop Auto-Click" : "Start Auto-Click"}
+			<button onClick={handleTraverseSection}>
+				{isTraversing ? "Stop Traversal" : "Start Traversal"}
 			</button>
+			<button onClick={handleViewSolution}>View Solution</button>
 			{status && <p>{status}</p>}
 		</div>
 	);
