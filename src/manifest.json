@@ -1,6 +1,8 @@
 {
-  "{{chrome}}.manifest_version": 3,
-  "{{firefox}}.manifest_version": 2,
+  "manifest_version": 3,
+  "name": "Testbook Automation",
+  "version": "1.0",
+  "description": "Automates clicking the Next button on Testbook.com",
   "icons": {
     "16": "icon/16.png",
     "32": "icon/32.png",
@@ -8,14 +10,17 @@
     "96": "icon/96.png",
     "128": "icon/128.png"
   },
-  "{{chrome}}.action": {
-    "default_popup": "src/popup.html"
-  },
-  "{{firefox}}.browser_action": {
+  "action": {
     "default_popup": "src/popup.html"
   },
   "background": {
-    "{{chrome}}.service_worker": "src/background.js",
-    "{{firefox}}.scripts": ["src/background.js"]
-  }
+    "service_worker": "src/background.js"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://testbook.com/*"
+  ]
 }
