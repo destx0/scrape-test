@@ -1,17 +1,22 @@
-import browser from "webextension-polyfill";
+// background.js
+
 import { scrapeQuestionAndOptions } from "./questionScraper.js";
 
 console.log("Hello from the background!");
 
 let isAutoClicking = false;
 
-browser.runtime.onInstalled.addListener((details) => {
+chrome.runtime.onInstalled.addListener((details) => {
 	console.log("Extension installed:", details);
 });
 
 // Function to get question information
 function getQuestionInfo() {
 	const questionList = document.querySelector(".questionList");
+	if (!questionList) {
+		console.error("Question list not found");
+		return null;
+	}
 	const questions = questionList.querySelectorAll("li");
 	const activeQuestion = questionList.querySelector(".current-question");
 
@@ -59,112 +64,163 @@ async function traverseSection(tabId) {
 	isAutoClicking = true;
 
 	while (isAutoClicking) {
-		// Get current question info
-		const questionInfo = await browser.scripting.executeScript({
-			target: { tabId: tabId },
-			func: getQuestionInfo,
-		});
-
-		// Send question info to popup
-		browser.runtime.sendMessage({
-			action: "updateQuestionInfo",
-			info: questionInfo[0].result,
-		});
-
-		// Scrape the question and options
-		const scrapedData = await browser.scripting.executeScript({
-			target: { tabId: tabId },
-			func: scrapeQuestionAndOptions,
-		});
-
-		if (scrapedData[0].result) {
-			console.log("Scraped data:", scrapedData[0].result);
-			// Send scraped data to popup
-			browser.runtime.sendMessage({
-				action: "updateScrapedData",
-				data: scrapedData[0].result,
+		try {
+			// Get current question info
+			const questionInfo = await chrome.scripting.executeScript({
+				target: { tabId: tabId },
+				func: getQuestionInfo,
 			});
-		}
 
-		// Click View Solution button if available
-		await browser.scripting.executeScript({
-			target: { tabId: tabId },
-			func: clickViewSolutionButton,
-		});
+			if (questionInfo[0].result) {
+				// Send question info to popup
+				chrome.runtime.sendMessage({
+					action: "updateQuestionInfo",
+					info: questionInfo[0].result,
+				});
+			} else {
+				console.error("Failed to get question info");
+			}
 
-		// Wait for 2 seconds to allow solution to load
-		await new Promise((resolve) => setTimeout(resolve, 2000));
+			// Scrape the question and options using the new function
+			const scrapedData = await chrome.scripting.executeScript({
+				target: { tabId: tabId },
+				func: scrapeQuestionAndOptions,
+			});
 
-		// Click next button
-		const clickResult = await browser.scripting.executeScript({
-			target: { tabId: tabId },
-			func: clickNextButton,
-		});
+			if (scrapedData[0].result && !scrapedData[0].result.error) {
+				console.log(scrapedData[0].result.parsedContent);
 
-		if (!clickResult[0].result) {
-			console.log(
-				"Reached the end of the section or encountered an error. Stopping traversal."
-			);
+				// Send scraped data to popup
+				chrome.runtime.sendMessage({
+					action: "updateScrapedData",
+					data: scrapedData[0].result,
+				});
+			} else {
+				console.error(
+					"Error scraping question:",
+					scrapedData[0].result
+						? scrapedData[0].result.error
+						: "Unknown error"
+				);
+			}
+
+			// Click View Solution button if available
+			await chrome.scripting.executeScript({
+				target: { tabId: tabId },
+				func: clickViewSolutionButton,
+			});
+
+			// Wait for 2 seconds to allow solution to load
+			await new Promise((resolve) => setTimeout(resolve, 2000));
+
+			// Click next button
+			const clickResult = await chrome.scripting.executeScript({
+				target: { tabId: tabId },
+				func: clickNextButton,
+			});
+
+			if (!clickResult[0].result) {
+				console.log(
+					"Reached the end of the section or encountered an error. Stopping traversal."
+				);
+				break;
+			}
+
+			// Wait for 1 second before next iteration
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+		} catch (error) {
+			console.error("Error in traverseSection:", error);
 			break;
 		}
-
-		// Wait for 1 second before next iteration
-		await new Promise((resolve) => setTimeout(resolve, 1000));
 	}
 
 	isAutoClicking = false;
 	// Notify popup that traversal has ended
-	browser.runtime.sendMessage({ action: "traversalEnded" });
+	chrome.runtime.sendMessage({ action: "traversalEnded" });
 }
 
 // Listen for messages from the popup
-browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	if (message.action === "getQuestionInfo") {
-		const [tab] = await browser.tabs.query({
-			active: true,
-			currentWindow: true,
-		});
-		const result = await browser.scripting.executeScript({
-			target: { tabId: tab.id },
-			func: getQuestionInfo,
-		});
-		return result[0].result;
+		chrome.tabs.query(
+			{ active: true, currentWindow: true },
+			async (tabs) => {
+				try {
+					const result = await chrome.scripting.executeScript({
+						target: { tabId: tabs[0].id },
+						func: getQuestionInfo,
+					});
+					sendResponse(result[0].result);
+				} catch (error) {
+					console.error("Error getting question info:", error);
+					sendResponse(null);
+				}
+			}
+		);
+		return true; // Indicates we will send a response asynchronously
 	} else if (message.action === "traverseSection") {
-		const [tab] = await browser.tabs.query({
-			active: true,
-			currentWindow: true,
+		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+			traverseSection(tabs[0].id);
 		});
-		traverseSection(tab.id);
-		return true;
+		sendResponse(true);
+		return false;
 	} else if (message.action === "stopTraversal") {
 		isAutoClicking = false;
-		return true;
+		sendResponse(true);
+		return false;
 	} else if (message.action === "viewSolution") {
-		const [tab] = await browser.tabs.query({
-			active: true,
-			currentWindow: true,
-		});
-		const result = await browser.scripting.executeScript({
-			target: { tabId: tab.id },
-			func: clickViewSolutionButton,
-		});
-		return result[0].result;
+		chrome.tabs.query(
+			{ active: true, currentWindow: true },
+			async (tabs) => {
+				try {
+					const result = await chrome.scripting.executeScript({
+						target: { tabId: tabs[0].id },
+						func: clickViewSolutionButton,
+					});
+					sendResponse(result[0].result);
+				} catch (error) {
+					console.error("Error viewing solution:", error);
+					sendResponse(false);
+				}
+			}
+		);
+		return true;
 	} else if (message.action === "scrapeCurrentQuestion") {
-		const [tab] = await browser.tabs.query({
-			active: true,
-			currentWindow: true,
-		});
-		const result = await browser.scripting.executeScript({
-			target: { tabId: tab.id },
-			func: scrapeQuestionAndOptions,
-		});
-		console.log("Manually scraped data:", result[0].result);
-		return result[0].result;
+		chrome.tabs.query(
+			{ active: true, currentWindow: true },
+			async (tabs) => {
+				try {
+					const result = await chrome.scripting.executeScript({
+						target: { tabId: tabs[0].id },
+						func: scrapeQuestionAndOptions,
+					});
+					if (result[0].result && !result[0].result.error) {
+						console.log(
+							"Manually scraped data:",
+							result[0].result.parsedContent
+						);
+						sendResponse(result[0].result);
+					} else {
+						console.error(
+							"Error scraping question:",
+							result[0].result
+								? result[0].result.error
+								: "Unknown error"
+						);
+						sendResponse(null);
+					}
+				} catch (error) {
+					console.error("Error scraping current question:", error);
+					sendResponse(null);
+				}
+			}
+		);
+		return true;
 	}
 });
 
 // Optional: Add listener for tab updates to potentially trigger actions when the page changes
-browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 	if (changeInfo.status === "complete" && tab.url.includes("testbook.com")) {
 		console.log("Testbook page loaded");
 		// You can trigger initial actions here if needed
