@@ -44,7 +44,6 @@ export function scrapeQuestionAndOptions() {
 		console.log("Scraped data:", result);
 		return {
 			parsedContent: result,
-			questionCount: elements.length,
 		};
 	} catch (error) {
 		console.error("Error in scrapeQuestionAndOptions:", error);

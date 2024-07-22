@@ -18,7 +18,8 @@
   },
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "downloads"
   ],
   "host_permissions": [
     "https://testbook.com/*"
