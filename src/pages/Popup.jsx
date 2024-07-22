@@ -60,7 +60,7 @@ export default function Popup() {
 		} else {
 			setStatus("Starting section traversal...");
 			setIsTraversing(true);
-			accumulatedDataRef.current = []; // Reset accumulated data
+			// accumulatedDataRef.current = []; // Reset accumulated data
 			try {
 				await browser.runtime.sendMessage({
 					action: "traverseSection",
