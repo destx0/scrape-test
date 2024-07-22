@@ -1,13 +1,13 @@
 import browser from "webextension-polyfill";
-import { scrapeQuestion } from "./questionScraper.js";
+import { scrapeQuestionAndOptions } from "./questionScraper.js";
 
 console.log("Hello from the background!");
+
+let isAutoClicking = false;
 
 browser.runtime.onInstalled.addListener((details) => {
 	console.log("Extension installed:", details);
 });
-
-let isAutoClicking = false;
 
 // Function to get question information
 function getQuestionInfo() {
@@ -71,15 +71,19 @@ async function traverseSection(tabId) {
 			info: questionInfo[0].result,
 		});
 
-		// Scrape the question
-		const scrapedQuestion = await browser.scripting.executeScript({
+		// Scrape the question and options
+		const scrapedData = await browser.scripting.executeScript({
 			target: { tabId: tabId },
-			func: scrapeQuestion,
+			func: scrapeQuestionAndOptions,
 		});
 
-		if (scrapedQuestion[0].result) {
-			console.log("Scraped question:", scrapedQuestion[0].result);
-			// Here you can send the scraped question to the popup or save it
+		if (scrapedData[0].result) {
+			console.log("Scraped data:", scrapedData[0].result);
+			// Send scraped data to popup
+			browser.runtime.sendMessage({
+				action: "updateScrapedData",
+				data: scrapedData[0].result,
+			});
 		}
 
 		// Click View Solution button if available
@@ -104,11 +108,13 @@ async function traverseSection(tabId) {
 			break;
 		}
 
-		// Wait for 100ms before next iteration
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		// Wait for 1 second before next iteration
+		await new Promise((resolve) => setTimeout(resolve, 1000));
 	}
 
 	isAutoClicking = false;
+	// Notify popup that traversal has ended
+	browser.runtime.sendMessage({ action: "traversalEnded" });
 }
 
 // Listen for messages from the popup
@@ -143,5 +149,24 @@ browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 			func: clickViewSolutionButton,
 		});
 		return result[0].result;
+	} else if (message.action === "scrapeCurrentQuestion") {
+		const [tab] = await browser.tabs.query({
+			active: true,
+			currentWindow: true,
+		});
+		const result = await browser.scripting.executeScript({
+			target: { tabId: tab.id },
+			func: scrapeQuestionAndOptions,
+		});
+		console.log("Manually scraped data:", result[0].result);
+		return result[0].result;
+	}
+});
+
+// Optional: Add listener for tab updates to potentially trigger actions when the page changes
+browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+	if (changeInfo.status === "complete" && tab.url.includes("testbook.com")) {
+		console.log("Testbook page loaded");
+		// You can trigger initial actions here if needed
 	}
 });

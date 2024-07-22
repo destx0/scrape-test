@@ -9,6 +9,7 @@ export default function Popup() {
 		total: 0,
 		active: null,
 	});
+	const [scrapedData, setScrapedData] = useState(null);
 
 	useEffect(() => {
 		console.log("Hello from the popup!");
@@ -18,6 +19,11 @@ export default function Popup() {
 		browser.runtime.onMessage.addListener((message) => {
 			if (message.action === "updateQuestionInfo") {
 				setQuestionInfo(message.info);
+			} else if (message.action === "updateScrapedData") {
+				setScrapedData(message.data);
+			} else if (message.action === "traversalEnded") {
+				setIsTraversing(false);
+				setStatus("Traversal completed.");
 			}
 		});
 	}, []);
@@ -71,6 +77,20 @@ export default function Popup() {
 		}
 	};
 
+	const handleScrapeCurrentQuestion = async () => {
+		setStatus("Scraping current question...");
+		try {
+			const result = await browser.runtime.sendMessage({
+				action: "scrapeCurrentQuestion",
+			});
+			setScrapedData(result);
+			setStatus("Question scraped successfully.");
+		} catch (error) {
+			console.error("Error scraping question:", error);
+			setStatus(`Error scraping question: ${error.message}`);
+		}
+	};
+
 	return (
 		<div>
 			<img src="/icon-with-shadow.svg" alt="Extension icon" />
@@ -84,7 +104,16 @@ export default function Popup() {
 				{isTraversing ? "Stop Traversal" : "Start Traversal"}
 			</button>
 			<button onClick={handleViewSolution}>View Solution</button>
+			<button onClick={handleScrapeCurrentQuestion}>
+				Scrape Current Question
+			</button>
 			{status && <p>{status}</p>}
+			{scrapedData && (
+				<div>
+					<h2>Scraped Question Data:</h2>
+					<pre>{JSON.stringify(scrapedData, null, 2)}</pre>
+				</div>
+			)}
 		</div>
 	);
 }
