@@ -15,6 +15,7 @@ export default function Popup() {
 	useEffect(() => {
 		console.log("Hello from the popup!");
 		updateQuestionInfo();
+		fetchAccumulatedData();
 
 		// Listen for question info updates from the background script
 		browser.runtime.onMessage.addListener((message) => {
@@ -22,15 +23,33 @@ export default function Popup() {
 				setQuestionInfo(message.info);
 			} else if (message.action === "updateScrapedData") {
 				setScrapedData(message.data);
-				// Accumulate the scraped data
-				accumulatedDataRef.current.push(message.data);
+				// Update accumulated data
+				accumulatedDataRef.current = [
+					...accumulatedDataRef.current,
+					message.data,
+				];
 			} else if (message.action === "traversalEnded") {
 				setIsTraversing(false);
 				setStatus("Traversal completed.");
-				updateAccumulatedData(message.accumulatedData);
+				// updateAccumulatedData(message.accumulatedData);
 			}
 		});
 	}, []);
+
+	const fetchAccumulatedData = async () => {
+		try {
+			const response = await browser.runtime.sendMessage({
+				action: "getAccumulatedData",
+			});
+			accumulatedDataRef.current = response.accumulatedData;
+			setStatus(
+				`Loaded ${response.accumulatedData.length} accumulated questions.`
+			);
+		} catch (error) {
+			console.error("Error fetching accumulated data:", error);
+			setStatus("Error fetching accumulated data.");
+		}
+	};
 
 	const updateQuestionInfo = async () => {
 		try {
@@ -50,26 +69,19 @@ export default function Popup() {
 
 	const handleTraverseSection = async () => {
 		if (isTraversing) {
-			setStatus("Stopping traversal...");
-			const response = await browser.runtime.sendMessage({
-				action: "stopTraversal",
-			});
-			setIsTraversing(false);
-			setStatus("Traversal stopped.");
-			updateAccumulatedData(response.accumulatedData);
+			// setStatus("Stopping traversal...");
+			// await browser.runtime.sendMessage({
+			// 	action: "stopTraversal",
+			// });
+			// setIsTraversing(false);
+			// setStatus("Traversal stopped.");
 		} else {
 			setStatus("Starting section traversal...");
 			setIsTraversing(true);
-			// accumulatedDataRef.current = []; // Reset accumulated data
-			try {
-				await browser.runtime.sendMessage({
-					action: "traverseSection",
-				});
-			} catch (error) {
-				console.error("Error during traversal:", error);
-				setStatus(`Error during traversal: ${error.message}`);
-				setIsTraversing(false);
-			}
+
+			await browser.runtime.sendMessage({
+				action: "traverseSection",
+			});
 		}
 	};
 
@@ -97,23 +109,6 @@ export default function Popup() {
 		setStatus("Data saved to file.");
 	};
 
-	const handleClearData = async () => {
-		try {
-			const response = await browser.runtime.sendMessage({
-				action: "clearAccumulatedData",
-			});
-			if (response.cleared) {
-				accumulatedDataRef.current = [];
-				setStatus("Accumulated data cleared.");
-			} else {
-				setStatus("Failed to clear accumulated data.");
-			}
-		} catch (error) {
-			console.error("Error clearing data:", error);
-			setStatus(`Error clearing data: ${error.message}`);
-		}
-	};
-
 	return (
 		<div>
 			<img src="/icon-with-shadow.svg" alt="Extension icon" />
@@ -131,7 +126,6 @@ export default function Popup() {
 				Scrape Current Question
 			</button>
 			<button onClick={saveAccumulatedData}>Save Accumulated Data</button>
-			<button onClick={handleClearData}>Clear Accumulated Data</button>
 			{status && <p>{status}</p>}
 			{scrapedData && (
 				<div>

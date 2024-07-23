@@ -5,9 +5,11 @@ import { scrapeQuestionAndOptions } from "./questionScraper.js";
 console.log("Hello from the background!");
 
 let isAutoClicking = false;
+let accumulatedData = [];
 
 chrome.runtime.onInstalled.addListener((details) => {
 	console.log("Extension installed:", details);
+	accumulatedData = []; // Clear data only on install/update
 });
 
 // Function to get question information
@@ -88,6 +90,7 @@ async function traverseSection(tabId) {
 
 		if (scrapedData[0].result && !scrapedData[0].result.error) {
 			console.log(scrapedData[0].result.parsedContent);
+			accumulatedData.push(scrapedData[0].result); // Accumulate data
 
 			// Send scraped data to popup
 			chrome.runtime.sendMessage({
@@ -125,15 +128,17 @@ async function traverseSection(tabId) {
 			break;
 		}
 
-		// Wait for 1 second before next iteration
 		await new Promise((resolve) => setTimeout(resolve, 10));
 
 		k++;
 	}
-	k = 0;
-	isAutoClicking = false;
-	// Notify popup that traversal has ended
-	chrome.runtime.sendMessage({ action: "traversalEnded" });
+	// k = 0;
+	// isAutoClicking = false;
+	// // Notify popup that traversal has ended
+	// chrome.runtime.sendMessage({
+	// 	action: "traversalEnded",
+	// 	accumulatedData: accumulatedData,
+	// });
 }
 
 // Listen for messages from the popup
